@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: aura-3040-night
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 3847
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: OAUTH_SERVER_URL
+        sync: false
+      - key: OWNER_OPEN_ID
+        sync: false
+      - key: OWNER_NAME
+        sync: false
+      - key: BUILT_IN_FORGE_API_KEY
+        sync: false
+      - key: BUILT_IN_FORGE_API_URL
+        sync: false
+      - key: VITE_APP_ID
+        sync: false
+      - key: VITE_APP_TITLE
+        value: AURA 3040 | 그때그밤
