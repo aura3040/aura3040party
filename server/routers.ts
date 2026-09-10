@@ -1,0 +1,106 @@
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import { COOKIE_NAME } from "@shared/const";
+import { EVENT_TIMES, REGISTRATION_STATUS } from "@shared/registration";
+import {
+  calculateRegistrationAmount,
+  createReferenceCode,
+  normalizePhone,
+} from "./registration-utils";
+import * as db from "./db";
+import { getSessionCookieOptions } from "./_core/cookies";
+import { systemRouter } from "./_core/systemRouter";
+import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+
+const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "관리자만 접근할 수 있습니다." });
+  }
+  return next({ ctx });
+});
+
+const registrationInput = z.object({
+  eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  eventTime: z.enum(EVENT_TIMES),
+  name: z.string().trim().min(2).max(100),
+  nickname: z.string().trim().min(1).max(100),
+  gender: z.enum(["male", "female"]),
+  birthYear: z.number().int().min(1950).max(new Date().getFullYear() - 19),
+  phone: z.string().min(10).max(20),
+  partySize: z.number().int().min(1).max(10),
+  privacyAgreed: z.literal(true),
+});
+
+function toPaymentSummary(registration: NonNullable<Awaited<ReturnType<typeof db.getRegistrationByReference>>>) {
+  return {
+    referenceCode: registration.referenceCode,
+    eventDate: registration.eventDate,
+    eventTime: registration.eventTime,
+    name: registration.name,
+    partySize: registration.partySize,
+    totalAmount: registration.totalAmount,
+    payerName: registration.payerName,
+    status: registration.status,
+  };
+}
+
+export const appRouter = router({
+  system: systemRouter,
+  auth: router({
+    me: publicProcedure.query(opts => opts.ctx.user),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      ctx.res.clearCookie(COOKIE_NAME, {
+        ...getSessionCookieOptions(ctx.req),
+        maxAge: -1,
+      });
+      return { success: true } as const;
+    }),
+  }),
+  registration: router({
+    create: publicProcedure.input(registrationInput).mutation(async ({ input }) => {
+      const phone = normalizePhone(input.phone);
+      if (!/^01\d{8,9}$/.test(phone)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "휴대전화번호를 확인해 주세요." });
+      }
+      const selectedDate = new Date(`${input.eventDate}T00:00:00+09:00`);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (Number.isNaN(selectedDate.getTime()) || selectedDate < today) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "오늘 이후의 날짜를 선택해 주세요." });
+      }
+      const day = selectedDate.getDay();
+      if (day === 0 || day === 1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "참가일은 화요일부터 토요일까지 선택할 수 있습니다." });
+      }
+      const feePerPerson = calculateRegistrationAmount(input.gender, 1);
+      return db.createRegistration({
+        ...input,
+        phone,
+        referenceCode: createReferenceCode(),
+        feePerPerson,
+        totalAmount: feePerPerson * input.partySize,
+        status: "pending",
+      });
+    }),
+    getByReference: publicProcedure
+      .input(z.object({ referenceCode: z.string().min(10).max(40) }))
+      .query(async ({ input }) => {
+        const registration = await db.getRegistrationByReference(input.referenceCode);
+        if (!registration) throw new TRPCError({ code: "NOT_FOUND", message: "신청 내역을 찾을 수 없습니다." });
+        return toPaymentSummary(registration);
+      }),
+    reportPayment: publicProcedure
+      .input(z.object({ referenceCode: z.string().min(10).max(40), payerName: z.string().trim().min(2).max(100) }))
+      .mutation(async ({ input }) => {
+        const registration = await db.reportRegistrationPayment(input.referenceCode, input.payerName);
+        if (!registration) throw new TRPCError({ code: "NOT_FOUND", message: "신청 내역을 찾을 수 없습니다." });
+        return toPaymentSummary(registration);
+      }),
+    list: adminProcedure.query(() => db.listRegistrations()),
+    updateStatus: adminProcedure
+      .input(z.object({ id: z.number().int().positive(), status: z.enum(REGISTRATION_STATUS) }))
+      .mutation(({ input }) => db.updateRegistrationStatus(input.id, input.status)),
+  }),
+});
+
+export type AppRouter = typeof appRouter;
