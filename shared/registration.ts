@@ -4,9 +4,9 @@ export const PARTICIPATION_FEES = {
 } as const;
 
 export const BANK_DETAILS = {
-  bankName: "은행 정보 입력 필요",
-  accountNumber: "계좌번호 입력 필요",
-  accountHolder: "예금주 입력 필요",
+  bankName: "기업은행",
+  accountNumber: "986-041314-01-019",
+  accountHolder: "ㅇㅎㅇ",
 } as const;
 
 export const EVENT_TIMES = ["19:00", "20:30", "22:00"] as const;
