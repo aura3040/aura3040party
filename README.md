@@ -37,7 +37,26 @@ App defaults to [http://127.0.0.1:3847](http://127.0.0.1:3847) when `PORT=3847`.
 - `/payment/:referenceCode` — 입금 안내·입금자명 보고
 - `/admin` — 신청자 관리 (OAuth)
 
+## Deploy
+
+Production build:
+
+```bash
+pnpm install
+pnpm run build
+NODE_ENV=production PORT=3847 HOST=0.0.0.0 node dist/index.js
+```
+
+Docker:
+
+```bash
+docker build -t aura-3040 .
+docker run --env-file .env -p 3847:3847 aura-3040
+```
+
+`Dockerfile` and `Procfile` are included for Railway / Render / Fly.io style hosts. Set the same env vars as `.env.example` (especially `DATABASE_URL` and `JWT_SECRET`).
+
 ## Notes
 
 - Do not commit `.env` or `.project-config.json` (they hold secrets).
-- Bank account and fee amounts live in `shared/` / registration helpers.
+- Bank account and fee amounts live in `shared/registration.ts`.
