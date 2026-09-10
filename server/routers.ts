@@ -3,6 +3,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { EVENT_TIMES, REGISTRATION_STATUS } from "@shared/registration";
 import {
+  assertEventDateAllowed,
   calculateRegistrationAmount,
   createReferenceCode,
   normalizePhone,
@@ -62,15 +63,9 @@ export const appRouter = router({
       if (!/^01\d{8,9}$/.test(phone)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "휴대전화번호를 확인해 주세요." });
       }
-      const selectedDate = new Date(`${input.eventDate}T00:00:00+09:00`);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if (Number.isNaN(selectedDate.getTime()) || selectedDate < today) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "오늘 이후의 날짜를 선택해 주세요." });
-      }
-      const day = selectedDate.getDay();
-      if (day === 0 || day === 1) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "참가일은 화요일부터 토요일까지 선택할 수 있습니다." });
+      const dateCheck = assertEventDateAllowed(input.eventDate);
+      if (!dateCheck.ok) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: dateCheck.message });
       }
       const feePerPerson = calculateRegistrationAmount(input.gender, 1);
       return db.createRegistration({
