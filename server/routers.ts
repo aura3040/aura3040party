@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { EVENT_TIMES, REGISTRATION_STATUS } from "@shared/registration";
 import {
   assertEventDateAllowed,
@@ -10,6 +10,8 @@ import {
 } from "./registration-utils";
 import * as db from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { ENV, LOCAL_ADMIN_OPEN_ID } from "./_core/env";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 
@@ -49,6 +51,49 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    adminLogin: publicProcedure
+      .input(z.object({ password: z.string().min(1).max(200) }))
+      .mutation(async ({ ctx, input }) => {
+        if (!ENV.adminPassword) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "관리자 비밀번호가 설정되지 않았습니다.",
+          });
+        }
+        if (input.password !== ENV.adminPassword) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "비밀번호가 올바르지 않습니다.",
+          });
+        }
+        if (!ENV.cookieSecret || !ENV.appId) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "세션 설정(JWT_SECRET / VITE_APP_ID)이 없습니다.",
+          });
+        }
+
+        await db.upsertUser({
+          openId: LOCAL_ADMIN_OPEN_ID,
+          name: "관리자",
+          email: null,
+          loginMethod: "password",
+          role: "admin",
+          lastSignedIn: new Date(),
+        });
+
+        const sessionToken = await sdk.createSessionToken(LOCAL_ADMIN_OPEN_ID, {
+          name: "관리자",
+          expiresInMs: ONE_YEAR_MS,
+        });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return { success: true as const, name: "관리자" };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       ctx.res.clearCookie(COOKIE_NAME, {
         ...getSessionCookieOptions(ctx.req),

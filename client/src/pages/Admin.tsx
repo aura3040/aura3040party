@@ -3,7 +3,6 @@ import { ArrowLeft, CalendarCheck, CheckCircle2, CircleDollarSign, Loader2, LogI
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { REGISTRATION_STATUS, STATUS_LABELS, type RegistrationStatus } from "@shared/registration";
 
@@ -23,11 +22,21 @@ const statusStyles: Record<RegistrationStatus, string> = {
 };
 
 export default function Admin() {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, refresh } = useAuth();
   const isAdmin = user?.role === "admin";
+  const [password, setPassword] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<RegistrationStatus | "all">("all");
   const utils = trpc.useUtils();
+  const adminLogin = trpc.auth.adminLogin.useMutation({
+    onSuccess: async () => {
+      toast.success("관리자로 로그인했습니다.");
+      setPassword("");
+      await utils.auth.me.invalidate();
+      await refresh();
+    },
+    onError: error => toast.error(error.message || "로그인에 실패했습니다."),
+  });
   const registrations = trpc.registration.list.useQuery(undefined, { enabled: isAdmin, retry: false });
   const updateStatus = trpc.registration.updateStatus.useMutation({
     onSuccess: () => {
@@ -64,8 +73,31 @@ export default function Admin() {
         <div className="w-full max-w-sm text-center">
           <span className="font-display text-5xl text-gold-gradient">A</span>
           <h1 className="mt-5 text-2xl font-bold tracking-tight">관리자 로그인</h1>
-          <p className="mt-3 text-sm leading-6 text-zinc-500">신청자 정보는 관리자 계정으로 로그인한 뒤 확인할 수 있습니다.</p>
-          <button onClick={() => startLogin()} className="admin-primary mt-7 w-full"><LogIn size={17} /> 로그인</button>
+          <p className="mt-3 text-sm leading-6 text-zinc-500">자체 관리자 비밀번호로 로그인합니다. Manus 결제가 필요 없습니다.</p>
+          <form
+            className="mt-7 space-y-3 text-left"
+            onSubmit={event => {
+              event.preventDefault();
+              adminLogin.mutate({ password });
+            }}
+          >
+            <label className="block text-xs font-semibold text-zinc-500">
+              관리자 비밀번호
+              <input
+                type="password"
+                autoFocus
+                autoComplete="current-password"
+                value={password}
+                onChange={event => setPassword(event.target.value)}
+                className="admin-input mt-2"
+                placeholder="비밀번호 입력"
+              />
+            </label>
+            <button type="submit" disabled={adminLogin.isPending || !password} className="admin-primary w-full disabled:opacity-60">
+              {adminLogin.isPending ? <Loader2 size={17} className="animate-spin" /> : <LogIn size={17} />}
+              {adminLogin.isPending ? "로그인 중..." : "로그인"}
+            </button>
+          </form>
           <Link href="/" className="mt-5 inline-flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-900"><ArrowLeft size={14} /> 신청 화면으로</Link>
         </div>
       </Centered>
